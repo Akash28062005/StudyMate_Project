@@ -1,0 +1,1495 @@
+---------------------------main.py
+
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+import sqlite3
+import os
+from datetime import datetime
+
+app = Flask(__name__)
+app.secret_key = 'supersecretkey'
+
+DB_NAME = "studymate.db"
+
+# --- Initialize Database ---
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    # Drop tables if needed (optional during development)
+    # c.execute("DROP TABLE IF EXISTS willingness")
+    # c.execute("DROP TABLE IF EXISTS topics")
+    # c.execute("DROP TABLE IF EXISTS users")
+
+    # Create users table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            profession TEXT NOT NULL,
+            name TEXT NOT NULL
+        )
+    """)
+
+    # Create topics table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS topics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            duration TEXT NOT NULL,
+            created_by INTEGER NOT NULL,
+            created_at TIMESTAMP,
+            scheduled_datetime TEXT,
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        )
+    """)
+
+    # Create willingness table to track users willing to join topics
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS willingness (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            topic_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (topic_id) REFERENCES topics(id),
+            UNIQUE(user_id, topic_id)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+# --- Routes ---
+
+@app.route('/')
+def landing():
+    return render_template('landing.html')
+
+@app.route('/home')
+def home():
+    if 'user' not in session:
+        return redirect(url_for('landing'))
+
+    user = session['user']
+    
+    # Check if admin user
+    if user.get('is_admin'):
+        return redirect(url_for('admin_home'))
+    
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    # Get all topics with willingness count and scheduled date
+    # topics structure: [id, title, description, duration, created_by, created_at, scheduled_datetime, username, name, willingness_count]
+    c.execute("""
+        SELECT t.id, t.title, t.description, t.duration, t.created_by, t.created_at,
+               t.scheduled_datetime, u.username, u.name, COUNT(w.id) as willingness_count
+        FROM topics t
+        LEFT JOIN users u ON t.created_by = u.id
+        LEFT JOIN willingness w ON t.id = w.topic_id
+        GROUP BY t.id
+        ORDER BY t.created_at DESC
+    """)
+    raw_topics = c.fetchall()
+    
+    # Format created_at and scheduled_datetime to 12-hour format
+    topics = []
+    for topic in raw_topics:
+        topic_list = list(topic)
+        if topic_list[5]:  # created_at exists
+            try:
+                # Try different formats
+                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d']:
+                    try:
+                        dt = datetime.strptime(str(topic_list[5]), fmt)
+                        topic_list[5] = dt.strftime('%b %d at %I:%M %p')
+                        break
+                    except ValueError:
+                        continue
+            except:
+                topic_list[5] = str(topic_list[5])
+        
+        # Format scheduled_datetime
+        if topic_list[6]:  # scheduled_datetime exists
+            try:
+                # Try different formats
+                for fmt in ['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M']:
+                    try:
+                        dt = datetime.strptime(str(topic_list[6]), fmt)
+                        topic_list[6] = dt.strftime('%b %d, %Y at %I:%M %p')
+                        break
+                    except ValueError:
+                        continue
+            except:
+                topic_list[6] = str(topic_list[6])
+        
+        topics.append(tuple(topic_list))
+    
+    # Get user's topics with willingness count
+    # my_topics structure: [id, title, description, duration, created_by, created_at, scheduled_datetime, willingness_count]
+    c.execute("""
+        SELECT t.id, t.title, t.description, t.duration, t.created_by, t.created_at, t.scheduled_datetime, COUNT(w.id) as willingness_count
+        FROM topics t
+        LEFT JOIN willingness w ON t.id = w.topic_id
+        WHERE t.created_by = ?
+        GROUP BY t.id
+        ORDER BY t.created_at DESC
+    """, (user['id'],))
+    raw_my_topics = c.fetchall()
+    
+    # Format my_topics timestamps
+    my_topics = []
+    for topic in raw_my_topics:
+        topic_list = list(topic)
+        if topic_list[5]:  # created_at exists
+            try:
+                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d']:
+                    try:
+                        dt = datetime.strptime(str(topic_list[5]), fmt)
+                        topic_list[5] = dt.strftime('%b %d at %I:%M %p')
+                        break
+                    except ValueError:
+                        continue
+            except:
+                topic_list[5] = str(topic_list[5])
+        
+        # Format scheduled_datetime
+        if topic_list[6]:
+            try:
+                for fmt in ['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M']:
+                    try:
+                        dt = datetime.strptime(str(topic_list[6]), fmt)
+                        topic_list[6] = dt.strftime('%b %d, %Y at %I:%M %p')
+                        break
+                    except ValueError:
+                        continue
+            except:
+                topic_list[6] = str(topic_list[6])
+        
+        my_topics.append(tuple(topic_list))
+    
+    # Get willingness counts for user
+    c.execute("SELECT topic_id FROM willingness WHERE user_id = ?", (user['id'],))
+    my_willingness = [row[0] for row in c.fetchall()]
+    
+    # Get list of willing users for each topic
+    willing_users = {}
+    for topic in my_topics:
+        c.execute("""
+            SELECT u.name, u.username
+            FROM willingness w
+            JOIN users u ON w.user_id = u.id
+            WHERE w.topic_id = ?
+        """, (topic[0],))
+        willing_users[topic[0]] = [{'name': row[0], 'email': row[1]} for row in c.fetchall()]
+    
+    conn.close()
+
+    return render_template('home.html', user=user, topics=topics, my_topics=my_topics, my_willingness=my_willingness, willing_users=willing_users)
+
+@app.route('/admin_home')
+def admin_home():
+    if 'user' not in session or not session['user'].get('is_admin'):
+        return redirect(url_for('landing'))
+    
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    # Get all users with their post count
+    c.execute("""
+        SELECT u.id, u.username, u.profession, u.name, COUNT(t.id) as post_count
+        FROM users u
+        LEFT JOIN topics t ON u.id = t.created_by
+        GROUP BY u.id
+        ORDER BY post_count DESC
+    """)
+    users = c.fetchall()
+    
+    conn.close()
+    
+    return render_template('admin_home.html', users=users)
+
+@app.route('/admin_delete_user/<int:user_id>', methods=['POST'])
+def admin_delete_user(user_id):
+    if 'user' not in session or not session['user'].get('is_admin'):
+        return redirect(url_for('landing'))
+    
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    # Delete user's willingness entries
+    c.execute("DELETE FROM willingness WHERE user_id = ?", (user_id,))
+    # Delete user's topics and their willingness
+    c.execute("SELECT id FROM topics WHERE created_by = ?", (user_id,))
+    topic_ids = [row[0] for row in c.fetchall()]
+    
+    for topic_id in topic_ids:
+        c.execute("DELETE FROM willingness WHERE topic_id = ?", (topic_id,))
+    
+    # Delete user's topics
+    c.execute("DELETE FROM topics WHERE created_by = ?", (user_id,))
+    # Delete user
+    c.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    
+    conn.commit()
+    conn.close()
+    
+    return redirect(url_for('admin_home'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+
+        # Check for admin login
+        if username == 'Admin' and password == 'Admin@123':
+            session['user'] = {
+                'is_admin': True,
+                'username': 'Admin'
+            }
+            return redirect(url_for('admin_home'))
+
+        conn = sqlite3.connect(DB_NAME)
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
+        user = c.fetchone()
+        conn.close()
+
+        if user:
+            session['user'] = {
+                'id': user[0],
+                'username': user[1],
+                'password': user[2],
+                'profession': user[3],
+                'name': user[4]
+            }
+            return redirect(url_for('home'))
+        else:
+            return "❌ Invalid username or password"
+
+    return render_template('login.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        profession = request.form['profession']
+        name = request.form['name']
+
+        conn = sqlite3.connect(DB_NAME)
+        c = conn.cursor()
+        try:
+            c.execute("INSERT INTO users (username, password, profession, name) VALUES (?, ?, ?, ?)", (username, password, profession, name))
+            conn.commit()
+        except sqlite3.IntegrityError:
+            return "⚠️ Username already exists"
+        finally:
+            conn.close()
+
+        return redirect(url_for('login'))
+
+    return render_template('register.html')
+
+@app.route('/post_topic', methods=['POST'])
+def post_topic():
+    if 'user' not in session:
+        return redirect(url_for('landing'))
+
+    title = request.form['title']
+    description = request.form['description']
+    duration = request.form['duration']
+    user_id = session['user']['id']
+    
+    # Get current local time
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("INSERT INTO topics (title, description, duration, created_by, created_at) VALUES (?, ?, ?, ?, ?)", 
+              (title, description, duration, user_id, current_time))
+    conn.commit()
+    conn.close()
+
+    return redirect(url_for('home'))
+
+@app.route('/schedule_session/<int:topic_id>', methods=['POST'])
+def schedule_session(topic_id):
+    if 'user' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    user_id = session['user']['id']
+    scheduled_datetime = request.form['scheduled_datetime']
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    # Check if user owns the topic
+    c.execute("SELECT created_by FROM topics WHERE id = ?", (topic_id,))
+    topic = c.fetchone()
+    
+    if topic and topic[0] == user_id:
+        c.execute("UPDATE topics SET scheduled_datetime = ? WHERE id = ?", (scheduled_datetime, topic_id))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('home'))
+    
+    conn.close()
+    return jsonify({'error': 'Unauthorized'}), 403
+
+@app.route('/delete_topic/<int:topic_id>', methods=['GET'])
+def delete_topic(topic_id):
+    if 'user' not in session:
+        return redirect(url_for('landing'))
+
+    user_id = session['user']['id']
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    # Check if user owns the topic
+    c.execute("SELECT created_by FROM topics WHERE id = ?", (topic_id,))
+    topic = c.fetchone()
+    
+    if topic and topic[0] == user_id:
+        # Delete willingness entries first
+        c.execute("DELETE FROM willingness WHERE topic_id = ?", (topic_id,))
+        # Delete the topic
+        c.execute("DELETE FROM topics WHERE id = ?", (topic_id,))
+        conn.commit()
+    
+    conn.close()
+    return redirect(url_for('home'))
+
+@app.route('/willing_to_join/<int:topic_id>', methods=['POST'])
+def willing_to_join(topic_id):
+    if 'user' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    user_id = session['user']['id']
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    try:
+        # Check if user owns the topic
+        c.execute("SELECT created_by FROM topics WHERE id = ?", (topic_id,))
+        topic = c.fetchone()
+        
+        if topic and topic[0] == user_id:
+            return jsonify({'error': 'Cannot join your own topic'}), 403
+        
+        # Check if already willing
+        c.execute("SELECT id FROM willingness WHERE user_id = ? AND topic_id = ?", (user_id, topic_id))
+        existing = c.fetchone()
+        
+        if existing:
+            # Remove willingness
+            c.execute("DELETE FROM willingness WHERE user_id = ? AND topic_id = ?", (user_id, topic_id))
+            action = 'removed'
+        else:
+            # Add willingness
+            c.execute("INSERT INTO willingness (user_id, topic_id) VALUES (?, ?)", (user_id, topic_id))
+            action = 'added'
+        
+        # Get updated count
+        c.execute("SELECT COUNT(*) FROM willingness WHERE topic_id = ?", (topic_id,))
+        count = c.fetchone()[0]
+        
+        conn.commit()
+        conn.close()
+        return jsonify({'action': action, 'count': count})
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/logout')
+def logout():
+    session.pop('user', None)
+    return redirect(url_for('landing'))
+
+
+if __name__ == '__main__':
+    init_db()
+    app.run(debug=True)
+
+
+------------------------------home.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudyMate - Home</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h2 {
+            font-size: 1.8em;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .user-badge {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+
+        .logout-btn {
+            background: white;
+            color: #667eea;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .logout-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            background: white;
+            padding: 10px;
+            border-radius: 15px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        .tab {
+            flex: 1;
+            padding: 15px;
+            text-align: center;
+            background: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            color: #666;
+            transition: all 0.3s ease;
+        }
+
+        .tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .tab:hover:not(.active) {
+            background: #f0f0f0;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .topic-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+            transition: all 0.3s ease;
+            border-left: 4px solid #667eea;
+        }
+
+        .topic-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 25px rgba(102, 126, 234, 0.2);
+            border-left-color: #764ba2;
+        }
+
+        .topic-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 15px;
+        }
+
+        .topic-title {
+            font-size: 1.5em;
+            color: #333;
+            font-weight: 700;
+        }
+
+        .topic-author {
+            color: #667eea;
+            font-size: 0.95em;
+            margin-top: 8px;
+            font-weight: 600;
+        }
+
+        .topic-description {
+            color: #666;
+            margin: 15px 0;
+            line-height: 1.6;
+        }
+
+        .topic-duration {
+            display: inline-block;
+            background: #f0f7ff;
+            color: #667eea;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+
+        .willing-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+
+        .willing-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .willing-count {
+            margin-top: 10px;
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .delete-btn {
+            background: #f5576c;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .delete-btn:hover {
+            background: #e94560;
+            transform: translateY(-2px);
+        }
+
+        .post-form {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            background: #fafafa;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-group textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-state h3 {
+            font-size: 1.5em;
+            margin-bottom: 10px;
+        }
+
+        .meta-info {
+            display: flex;
+            gap: 15px;
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #888;
+            align-items: center;
+        }
+
+        .schedule-btn {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+
+        .schedule-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(17, 153, 142, 0.4);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background-color: white;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .session-status {
+            margin-top: 10px;
+            padding: 10px 18px;
+            border-radius: 25px;
+            display: inline-block;
+            font-weight: 600;
+            font-size: 0.95em;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .scheduled {
+            background: linear-gradient(135deg, #a8e6cf 0%, #dcedc8 100%);
+            color: #1b5e20;
+            border: 2px solid #81c784;
+        }
+
+        .not-scheduled {
+            background: linear-gradient(135deg, #ffecb3 0%, #fff9c4 100%);
+            color: #e65100;
+            border: 2px solid #ffb74d;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>📚 StudyMate</h2>
+        <div class="user-info">
+            <span class="user-badge">{{ user.profession|capitalize }} - {{ user.name }}</span>
+            <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('available')">Available Topics</button>
+            <button class="tab" onclick="switchTab('post')">Post My Topic</button>
+            <button class="tab" onclick="switchTab('myposts')">My Posts</button>
+        </div>
+
+        <!-- Tab 1: Available Topics -->
+        <div id="available" class="tab-content active">
+            {% if topics %}
+                {% for topic in topics %}
+                <div class="topic-card">
+                    <div class="topic-header">
+                        <div>
+                            <div class="topic-title">{{ topic[1] }}</div>
+                            <div class="topic-author">📝 {{ topic[8] }}</div>
+                            <div style="color: #999; font-size: 0.85em; margin-top: 4px;">🕒 {{ topic[5] }}</div>
+                        </div>
+                        <div class="topic-duration">⏱️ {{ topic[3] }}</div>
+                    </div>
+                    <div class="topic-description">{{ topic[2] }}</div>
+                    <div class="meta-info">
+                        {% if topic[4] != user.id %}
+                        <button class="willing-btn" data-topic-id="{{ topic[0] }}" data-count="{{ topic[9]|default(0) }}" onclick="toggleWilling(this)">
+                            {% if topic[0] in my_willingness %}Willing ✓{% else %}Willing to Join{% endif %}
+                        </button>
+                        {% endif %}
+                        <span class="willing-count" id="count-{{ topic[0] }}">{{ topic[9] }} interested</span>
+                    </div>
+                    <div style="margin-top: 10px;">
+                        {% if topic[6] %}
+                            <div class="session-status scheduled">
+                                📅 📆 Session scheduled: {{ topic[6] }}
+                            </div>
+                        {% else %}
+                            <div class="session-status not-scheduled">
+                                ⏳ Session not yet scheduled
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <h3>📝 No topics available yet</h3>
+                    <p>Be the first to post a topic!</p>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Tab 2: Post Topic -->
+        <div id="post" class="tab-content">
+            <div class="post-form">
+                <h3 style="margin-bottom: 20px; color: #667eea;">Post a New Topic</h3>
+                <form method="POST" action="{{ url_for('post_topic') }}">
+                    <div class="form-group">
+                        <label>Title:</label>
+                        <input type="text" name="title" required placeholder="Enter topic title">
+                    </div>
+                    <div class="form-group">
+                        <label>Description:</label>
+                        <textarea name="description" required placeholder="Describe your topic"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Duration:</label>
+                        <input type="text" name="duration" required placeholder="e.g., 2 hours, 1 week, etc.">
+                    </div>
+                    <button type="submit" class="submit-btn">Post Topic</button>
+        </form>
+            </div>
+        </div>
+
+        <!-- Tab 3: My Posts -->
+        <div id="myposts" class="tab-content">
+            {% if my_topics %}
+                {% for topic in my_topics %}
+                <div class="topic-card">
+                    <div class="topic-header">
+                        <div>
+                            <div class="topic-title">{{ topic[1] }}</div>
+                        </div>
+                        <div class="topic-duration">⏱️ {{ topic[3] }}</div>
+                    </div>
+                    <div class="topic-description">{{ topic[2] }}</div>
+                    <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                        <span class="willing-count" style="color: #667eea; font-weight: 600;">{{ topic[8] }} people interested</span>
+                        <button class="schedule-btn" data-topic-id="{{ topic[0] }}" data-current-datetime="{{ topic[6] or '' }}" onclick="openScheduleModal(this)">
+                            📅 Schedule Session
+                        </button>
+                        <a href="{{ url_for('delete_topic', topic_id=topic[0]) }}" 
+                           class="delete-btn" 
+                           onclick="return confirm('Are you sure you want to delete this topic?')">
+                            Delete
+                        </a>
+                    </div>
+                    {% if topic[6] %}
+                        <div style="margin-top: 10px;">
+                            <div class="session-status scheduled">
+                                📅 📆 Scheduled: {{ topic[6] }}
+                            </div>
+                        </div>
+                    {% endif %}
+                    {% if willing_users.get(topic[0]) %}
+                        <div style="margin-top: 15px; padding: 18px; background: linear-gradient(135deg, #f0f7ff 0%, #e8f0fe 100%); border-radius: 12px; border: 2px solid #667eea;">
+                            <strong style="color: #667eea; font-size: 1.1em;">👥 Members Joined:</strong>
+                            <div style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 10px;">
+                                {% for member in willing_users.get(topic[0], []) %}
+                                    <span style="background: white; padding: 8px 16px; border-radius: 20px; color: #667eea; font-weight: 600; box-shadow: 0 2px 6px rgba(102, 126, 234, 0.2);" title="{{ member.email }}">{{ member.name }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% else %}
+                        <div style="margin-top: 15px; padding: 18px; background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%); border-radius: 12px; color: #e65100; border: 2px solid #ffb74d;">
+                            ⏳ No members joined yet
+                        </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+        {% else %}
+                <div class="empty-state">
+                    <h3>📝 No posts yet</h3>
+                    <p>Create your first post in the "Post My Topic" tab!</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Modal for Scheduling -->
+    <div id="scheduleModal" class="modal">
+        <div class="modal-content">
+            <h3 style="margin-bottom: 20px; color: #667eea;">📅 Schedule Session</h3>
+            <form id="scheduleForm" method="POST">
+                <div class="form-group">
+                    <label>Select Date & Time:</label>
+                    <input type="datetime-local" name="scheduled_datetime" id="scheduled_datetime" required>
+                    <input type="hidden" name="topic_id" id="topic_id">
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button type="submit" class="submit-btn">💾 Save Schedule</button>
+                    <button type="button" onclick="closeScheduleModal()" style="flex: 1; background: #e0e0e0; color: #333; border: none; padding: 16px; border-radius: 10px; font-size: 1.1em; font-weight: 600; cursor: pointer;">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function switchTab(tabName) {
+            // Hide all tab contents
+            const contents = document.querySelectorAll('.tab-content');
+            contents.forEach(content => content.classList.remove('active'));
+            
+            // Remove active class from all tabs
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(tab => tab.classList.remove('active'));
+            
+            // Show selected tab content
+            document.getElementById(tabName).classList.add('active');
+            
+            // Add active class to clicked tab
+            event.target.classList.add('active');
+        }
+
+        function toggleWilling(button) {
+            const topicId = button.getAttribute('data-topic-id');
+            const currentCount = button.getAttribute('data-count');
+            
+            fetch(`/willing_to_join/${topicId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => {
+                        throw err;
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                
+                // Update button text
+                if (data.action === 'added') {
+                    button.textContent = 'Willing ✓';
+                } else {
+                    button.textContent = 'Willing to Join';
+                }
+                
+                // Update count
+                document.getElementById(`count-${topicId}`).textContent = `${data.count} interested`;
+                
+                // Reload page to show updated member list
+                if (data.action === 'added') {
+                    setTimeout(() => window.location.reload(), 500);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                if (error.error) {
+                    alert(error.error);
+                } else {
+                    alert('Failed to update willingness');
+                }
+            });
+        }
+
+        function openScheduleModal(button) {
+            const topicId = button.getAttribute('data-topic-id');
+            const currentDatetime = button.getAttribute('data-current-datetime');
+            
+            const modal = document.getElementById('scheduleModal');
+            const form = document.getElementById('scheduleForm');
+            const datetimeInput = document.getElementById('scheduled_datetime');
+            const topicIdInput = document.getElementById('topic_id');
+            
+            // Set minimum date and time
+            const now = new Date();
+            now.setMinutes(now.getMinutes() + 1);
+            const minDatetime = now.toISOString().slice(0, 16);
+            datetimeInput.min = minDatetime;
+            
+            // Set form action
+            form.action = `/schedule_session/${topicId}`;
+            topicIdInput.value = topicId;
+            
+            // Set current datetime if exists
+            if (currentDatetime) {
+                datetimeInput.value = currentDatetime;
+            }
+            
+            modal.style.display = 'flex';
+        }
+
+        function closeScheduleModal() {
+            document.getElementById('scheduleModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('scheduleModal');
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
+
+
+
+---------------------------------admin_home.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - StudyMate</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h2 {
+            font-size: 1.8em;
+        }
+
+        .logout-btn {
+            background: white;
+            color: #11998e;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .logout-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .stats-card {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+            margin-bottom: 30px;
+        }
+
+        .stats-card h3 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+
+        .user-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .user-card:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .user-info {
+            flex: 1;
+        }
+
+        .username {
+            font-size: 1.2em;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .profession {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .post-count {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-weight: 600;
+            font-size: 1.1em;
+        }
+
+        .action-btn {
+            background: #f5576c;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .action-btn:hover {
+            background: #e94560;
+            transform: translateY(-2px);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>👤 Admin Dashboard</h2>
+        <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
+    </div>
+
+    <div class="container">
+        <div class="stats-card">
+            <h3>📊 All Users</h3>
+            {% if users %}
+                {% for user in users %}
+                <div class="user-card">
+                    <div class="user-info">
+                        <div class="username">{{ user[3] }} ({{ user[1] }})</div>
+                        <div class="profession">{{ user[2]|capitalize }}</div>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <div class="post-count">{{ user[4] }} Posts</div>
+                        <form action="{{ url_for('admin_delete_user', user_id=user[0]) }}" method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this user? This will delete all their posts and data.')">
+                            <button type="submit" class="action-btn">Remove User</button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <h3>No users yet</h3>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>
+
+
+
+
+
+
+-----------------------------------register.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - StudyMate</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 50px;
+            max-width: 450px;
+            width: 90%;
+        }
+
+        h2 {
+            color: #667eea;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 2em;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="email"],
+        select {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus,
+        input[type="email"]:focus,
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        button[type="submit"] {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        button[type="submit"]:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+
+        .link {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .link a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .link a:hover {
+            text-decoration: underline;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 15px;
+            color: #666;
+            text-decoration: none;
+        }
+
+        .back-link:hover {
+            color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Register</h2>
+        <form method="POST">
+            <div class="form-group">
+                <label>Full Name:</label>
+                <input type="text" name="name" required placeholder="Enter your name">
+            </div>
+            <div class="form-group">
+                <label>Email (Username):</label>
+                <input type="email" name="username" required>
+            </div>
+            <div class="form-group">
+                <label>Password:</label>
+                <input type="password" name="password" required>
+            </div>
+            <div class="form-group">
+                <label>Profession:</label>
+                <select name="profession" required>
+                    <option value="">Select Profession</option>
+                    <option value="student">Student</option>
+                    <option value="staff">Staff</option>
+                </select>
+            </div>
+            <button type="submit">Register</button>
+        </form>
+        <div class="link">
+            <p>Already have an account? <a href="{{ url_for('login') }}">Login</a></p>
+            <a href="{{ url_for('landing') }}" class="back-link">← Back to Home</a>
+        </div>
+    </div>
+</body>
+</html>
+
+
+
+------------------------------------login.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - StudyMate</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 50px;
+            max-width: 450px;
+            width: 90%;
+        }
+
+        h2 {
+            color: #667eea;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 2em;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: all 0.3s ease;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        button[type="submit"] {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        button[type="submit"]:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+        }
+
+        .link {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .link a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .link a:hover {
+            text-decoration: underline;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 15px;
+            color: #666;
+            text-decoration: none;
+        }
+
+        .back-link:hover {
+            color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Login</h2>
+        <form method="POST">
+            <div class="form-group">
+                <label>Username:</label>
+                <input type="text" name="username" required>
+            </div>
+            <div class="form-group">
+                <label>Password:</label>
+                <input type="password" name="password" required>
+            </div>
+            <button type="submit">Login</button>
+        </form>
+        <div class="link">
+            <p>Don't have an account? <a href="{{ url_for('register') }}">Register</a></p>
+            <a href="{{ url_for('landing') }}" class="back-link">← Back to Home</a>
+        </div>
+    </div>
+</body>
+</html>
