@@ -389,12 +389,7 @@
         <div class="user-info">
             <span class="user-badge">{{ user.profession|capitalize }} - {{ user.name }}</span>
             <a href="{{ url_for('profile.profile', username=user.username) }}" class="nav-link" style="color: white; text-decoration: none; background: rgba(255,255,255,0.1); padding: 8px 16px; border-radius: 20px;">View Profile</a>
-            <a href="{{ url_<div style="display:flex;gap:1rem;align-items:center;">
-        <a href="/calendar" style="color:#667eea;text-decoration:none;font-weight:600;padding:0.5rem 1rem;border-radius:8px;transition:all 0.3s;">📅 Calendar</a>
-        <a href="/messages" style="color:#667eea;text-decoration:none;font-weight:600;padding:0.5rem 1rem;border-radius:8px;transition:all 0.3s;">💬 Messages</a>
-       </div>
-                <div class="user-info">
-tn">Logout</a>
+            <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
         </div>
     </div>
 
@@ -532,7 +527,7 @@ tn">Logout</a>
                     </div>
                     
                     <button type="submit" class="submit-btn">Post Topic</button>
-        </form>
+                </form>
             </div>
         </div>
 
@@ -565,7 +560,7 @@ tn">Logout</a>
                                 📅 📆 Scheduled: {{ topic[6] }}
                             </div>
                         </div>
-    {% endif %}
+                    {% endif %}
                     {% if willing_users.get(topic[0]) %}
                         <div style="margin-top: 15px; padding: 18px; background: linear-gradient(135deg, #f0f7ff 0%, #e8f0fe 100%); border-radius: 12px; border: 2px solid #667eea;">
                             <strong style="color: #667eea; font-size: 1.1em;">👥 Members Joined:</strong>
@@ -575,14 +570,14 @@ tn">Logout</a>
                                 {% endfor %}
                             </div>
                         </div>
-        {% else %}
+                    {% else %}
                         <div style="margin-top: 15px; padding: 18px; background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%); border-radius: 12px; color: #e65100; border: 2px solid #ffb74d;">
                             ⏳ No members joined yet
                         </div>
                     {% endif %}
                 </div>
-        {% endfor %}
-        {% else %}
+                {% endfor %}
+            {% else %}
                 <div class="empty-state">
                     <h3>📝 No posts yet</h3>
                     <p>Create your first post in the "Post My Topic" tab!</p>

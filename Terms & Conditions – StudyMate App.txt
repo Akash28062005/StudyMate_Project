@@ -1,0 +1,67 @@
+📜 Terms & Conditions – StudyMate App
+1. Acceptance of Terms
+
+By using the StudyMate application, you agree to follow all the terms and conditions mentioned here. If you do not agree, please do not use the app.
+
+2. User Accounts
+
+Users must provide accurate information when creating an account.
+
+Users are responsible for keeping their login details safe.
+
+StudyMate is not responsible for any unauthorized access caused by user negligence.
+
+3. Use of the Application
+
+The app must be used only for educational and collaboration purposes.
+
+Users must not upload harmful, abusive, or illegal content.
+
+Sharing false information or spamming is strictly prohibited.
+
+4. Content Ownership
+
+Notes, files, and materials uploaded by users remain their own property.
+
+By uploading content, users give permission for StudyMate to display and share it within the app for educational purposes.
+
+5. Privacy
+
+StudyMate collects only basic user information needed for login and collaboration features.
+
+Personal information will not be shared with third parties without consent.
+
+The app may store activity logs to improve the service.
+
+6. Restrictions
+
+Users are not allowed to:
+
+Reverse-engineer or modify the app code.
+
+Use the app for commercial, harmful, or illegal activities.
+
+Upload viruses or perform actions that may harm the app.
+
+7. Data Security
+
+While we try to protect user data, StudyMate cannot guarantee complete security.
+
+Users should avoid uploading sensitive personal information.
+
+8. Termination
+
+StudyMate has the right to suspend or remove any user account that violates these terms without prior notice.
+
+9. Changes to Terms
+
+StudyMate may update these Terms & Conditions at any time. Users will be notified of major changes.
+
+10. Disclaimer
+
+StudyMate is a student project and may contain bugs or incomplete features.
+We are not responsible for any data loss or technical issues.
+
+11. Contact
+
+For any issues or questions, users can contact us through the app support section.
