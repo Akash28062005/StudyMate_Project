@@ -1,4 +1,5 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory
+from werkzeug.utils import secure_filename
 import sqlite3
 import os
 from datetime import datetime
@@ -6,7 +7,12 @@ from datetime import datetime
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'
 
+from routes.profile import profile_bp
+app.register_blueprint(profile_bp)
+
 DB_NAME = "studymate.db"
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'avatars')
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
 # --- Initialize Database ---
 def init_db():
@@ -43,6 +49,15 @@ def init_db():
         )
     """)
 
+    # Ensure optional category column exists on topics
+    try:
+        c.execute("PRAGMA table_info(topics)")
+        cols = [row[1] for row in c.fetchall()]
+        if 'category' not in cols:
+            c.execute("ALTER TABLE topics ADD COLUMN category TEXT")
+    except Exception:
+        pass
+
     # Create willingness table to track users willing to join topics
     c.execute("""
         CREATE TABLE IF NOT EXISTS willingness (
@@ -55,6 +70,30 @@ def init_db():
             UNIQUE(user_id, topic_id)
         )
     """)
+
+    # Create ratings table (0..5, 0.5 steps allowed)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS ratings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            topic_id INTEGER NOT NULL,
+            rating REAL NOT NULL CHECK (rating >= 0 AND rating <= 5),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (topic_id) REFERENCES topics(id),
+            UNIQUE(user_id, topic_id)
+        )
+    """)
+
+    # Ensure feedback column exists on ratings
+    try:
+        c.execute("PRAGMA table_info(ratings)")
+        rcols = [row[1] for row in c.fetchall()]
+        if 'feedback' not in rcols:
+            c.execute("ALTER TABLE ratings ADD COLUMN feedback TEXT")
+    except Exception:
+        pass
 
     conn.commit()
     conn.close()
@@ -79,14 +118,19 @@ def home():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     
-    # Get all topics with willingness count and scheduled date
-    # topics structure: [id, title, description, duration, created_by, created_at, scheduled_datetime, username, name, willingness_count]
+    # Get all topics with willingness, rating aggregates and scheduled date
+    # topics structure: [id, title, description, duration, created_by, created_at, scheduled_datetime, username, name, willingness_count, category, avg_rating, ratings_count]
     c.execute("""
         SELECT t.id, t.title, t.description, t.duration, t.created_by, t.created_at,
-               t.scheduled_datetime, u.username, u.name, COUNT(w.id) as willingness_count
+               t.scheduled_datetime, u.username, u.name,
+               COUNT(DISTINCT w.id) as willingness_count,
+               IFNULL(t.category, ''),
+               ROUND(AVG(r.rating), 2) as avg_rating,
+               COUNT(r.id) as ratings_count
         FROM topics t
         LEFT JOIN users u ON t.created_by = u.id
         LEFT JOIN willingness w ON t.id = w.topic_id
+        LEFT JOIN ratings r ON t.id = r.topic_id
         GROUP BY t.id
         ORDER BY t.created_at DESC
     """)
@@ -94,8 +138,11 @@ def home():
     
     # Format created_at and scheduled_datetime to 12-hour format
     topics = []
+    now = datetime.now()
     for topic in raw_topics:
         topic_list = list(topic)
+        original_scheduled = topic_list[6]  # Keep original for date check
+        
         if topic_list[5]:  # created_at exists
             try:
                 # Try different formats
@@ -109,7 +156,8 @@ def home():
             except:
                 topic_list[5] = str(topic_list[5])
         
-        # Format scheduled_datetime
+        # Format scheduled_datetime and check if date has passed
+        can_feedback = True  # Default: can give feedback if no scheduled date
         if topic_list[6]:  # scheduled_datetime exists
             try:
                 # Try different formats
@@ -117,20 +165,33 @@ def home():
                     try:
                         dt = datetime.strptime(str(topic_list[6]), fmt)
                         topic_list[6] = dt.strftime('%b %d, %Y at %I:%M %p')
+                        # Check if scheduled date has passed
+                        can_feedback = now >= dt
                         break
                     except ValueError:
                         continue
             except:
                 topic_list[6] = str(topic_list[6])
         
+        # Normalize rating fields (avg may be None)
+        if topic_list[11] is None:
+            topic_list[11] = 0.0
+        
+        # Add can_feedback flag (append to topic_list)
+        topic_list.append(can_feedback)
         topics.append(tuple(topic_list))
     
-    # Get user's topics with willingness count
-    # my_topics structure: [id, title, description, duration, created_by, created_at, scheduled_datetime, willingness_count]
+    # Get user's topics with willingness count and ratings
+    # my_topics structure: [id, title, description, duration, created_by, created_at, scheduled_datetime, willingness_count, category, avg_rating, ratings_count]
     c.execute("""
-        SELECT t.id, t.title, t.description, t.duration, t.created_by, t.created_at, t.scheduled_datetime, COUNT(w.id) as willingness_count
+        SELECT t.id, t.title, t.description, t.duration, t.created_by, t.created_at, t.scheduled_datetime,
+               COUNT(DISTINCT w.id) as willingness_count,
+               IFNULL(t.category, ''),
+               ROUND(AVG(r.rating), 2) as avg_rating,
+               COUNT(r.id) as ratings_count
         FROM topics t
         LEFT JOIN willingness w ON t.id = w.topic_id
+        LEFT JOIN ratings r ON t.id = r.topic_id
         WHERE t.created_by = ?
         GROUP BY t.id
         ORDER BY t.created_at DESC
@@ -166,6 +227,9 @@ def home():
             except:
                 topic_list[6] = str(topic_list[6])
         
+        # Normalize rating fields
+        if topic_list[9] is None:
+            topic_list[9] = 0.0
         my_topics.append(tuple(topic_list))
     
     # Get willingness counts for user
@@ -174,7 +238,10 @@ def home():
     
     # Get list of willing users for each topic
     willing_users = {}
+    # Get list of ratings + feedback for each topic
+    topic_ratings = {}
     for topic in my_topics:
+        # Willing users
         c.execute("""
             SELECT u.name, u.username
             FROM willingness w
@@ -182,10 +249,46 @@ def home():
             WHERE w.topic_id = ?
         """, (topic[0],))
         willing_users[topic[0]] = [{'name': row[0], 'email': row[1]} for row in c.fetchall()]
+
+        # Ratings and feedback
+        c.execute("""
+            SELECT u.name, r.rating, IFNULL(r.feedback, ''), r.created_at
+            FROM ratings r
+            JOIN users u ON r.user_id = u.id
+            WHERE r.topic_id = ?
+            ORDER BY r.created_at DESC
+        """, (topic[0],))
+        rows = c.fetchall()
+        # Format created_at to readable 12-hour time
+        formatted = []
+        for name, rating, feedback, created_at in rows:
+            ts = str(created_at) if created_at is not None else ''
+            try:
+                dt = None
+                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d']:
+                    try:
+                        from datetime import datetime as _dt
+                        dt = _dt.strptime(ts, fmt)
+                        break
+                    except ValueError:
+                        continue
+                created_str = dt.strftime('%b %d at %I:%M %p') if dt else ts
+            except Exception:
+                created_str = ts
+            formatted.append({'name': name, 'rating': rating, 'feedback': feedback, 'when': created_str})
+        topic_ratings[topic[0]] = formatted
     
+    # Map of user ratings for quick lookup
+    c = None
     conn.close()
 
-    return render_template('home.html', user=user, topics=topics, my_topics=my_topics, my_willingness=my_willingness, willing_users=willing_users)
+    return render_template('home.html',
+                           user=user,
+                           topics=topics,
+                           my_topics=my_topics,
+                           my_willingness=my_willingness,
+                           willing_users=willing_users,
+                           topic_ratings=topic_ratings)
 
 @app.route('/admin_home')
 def admin_home():
@@ -300,6 +403,7 @@ def post_topic():
     title = request.form['title']
     description = request.form['description']
     duration = request.form['duration']
+    category = request.form.get('category', '').strip()
     user_id = session['user']['id']
     
     # Get current local time
@@ -307,8 +411,8 @@ def post_topic():
 
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute("INSERT INTO topics (title, description, duration, created_by, created_at) VALUES (?, ?, ?, ?, ?)", 
-              (title, description, duration, user_id, current_time))
+    c.execute("INSERT INTO topics (title, description, duration, created_by, created_at, category) VALUES (?, ?, ?, ?, ?, ?)", 
+              (title, description, duration, user_id, current_time, category))
     conn.commit()
     conn.close()
 
@@ -337,6 +441,86 @@ def schedule_session(topic_id):
     
     conn.close()
     return jsonify({'error': 'Unauthorized'}), 403
+
+
+@app.route('/rate_topic/<int:topic_id>', methods=['POST'])
+def rate_topic(topic_id):
+    if 'user' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    user_id = session['user']['id']
+    try:
+        rating = float(request.form.get('rating', '0'))
+    except ValueError:
+        return jsonify({'error': 'Invalid rating'}), 400
+
+    if rating < 0 or rating > 5:
+        return jsonify({'error': 'Rating out of range'}), 400
+
+    feedback = request.form.get('feedback', '').strip()
+    
+    # Get current local time with seconds for precise timestamping
+    now = datetime.now()
+    current_time = now.strftime('%Y-%m-%d %H:%M:%S')
+    friendly_time = now.strftime('%b %d, %Y at %I:%M:%S %p')  # More readable format
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    # Check if topic has a scheduled date and if it has passed
+    c.execute("SELECT scheduled_datetime FROM topics WHERE id = ?", (topic_id,))
+    topic = c.fetchone()
+    
+    if topic and topic[0]:
+        # Topic has a scheduled date, check if it has passed
+        try:
+            # Try different formats for scheduled_datetime
+            scheduled_str = str(topic[0])
+            scheduled_dt = None
+            for fmt in ['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d']:
+                try:
+                    scheduled_dt = datetime.strptime(scheduled_str, fmt)
+                    break
+                except ValueError:
+                    continue
+            
+            if scheduled_dt:
+                now = datetime.now()
+                if now < scheduled_dt:
+                    conn.close()
+                    return jsonify({'error': 'Feedback can only be submitted after the scheduled session date'}), 400
+        except Exception:
+            # If parsing fails, allow rating (backward compatibility)
+            pass
+    
+    try:
+        # Check if rating already exists
+        c.execute("SELECT id FROM ratings WHERE user_id = ? AND topic_id = ?", (user_id, topic_id))
+        existing = c.fetchone()
+        
+        if existing:
+            # Update existing rating
+            if feedback:
+                c.execute("UPDATE ratings SET rating = ?, feedback = ?, updated_at = ? WHERE user_id = ? AND topic_id = ?",
+                          (rating, feedback, current_time, user_id, topic_id))
+            else:
+                c.execute("UPDATE ratings SET rating = ?, updated_at = ? WHERE user_id = ? AND topic_id = ?",
+                          (rating, current_time, user_id, topic_id))
+        else:
+            # Insert new rating with current local time
+            c.execute("INSERT INTO ratings (user_id, topic_id, rating, feedback, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                      (user_id, topic_id, rating, feedback, current_time, current_time))
+        
+        # Return fresh aggregates
+        c.execute("SELECT ROUND(AVG(rating), 2), COUNT(1) FROM ratings WHERE topic_id = ?", (topic_id,))
+        avg_rating, count = c.fetchone()
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'avg': avg_rating or 0.0, 'count': count})
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/delete_topic/<int:topic_id>', methods=['GET'])
 def delete_topic(topic_id):
@@ -412,4 +596,4 @@ def logout():
 
 if __name__ == '__main__':
     init_db()
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)

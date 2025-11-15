@@ -166,6 +166,43 @@
             font-weight: 600;
         }
 
+        .category-badge {
+            display: inline-block;
+            background: #ffe0b2;
+            color: #e65100;
+            padding: 4px 10px;
+            border-radius: 14px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+
+        .rating-box {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+
+        .stars .star {
+            font-size: 22px;
+            color: #ffd54f;
+            cursor: pointer;
+            user-select: none;
+        }
+        .stars .star.active { color: #ffb300; }
+
+        .rate-btn {
+            background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
+            color: #6a1b9a;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 18px;
+            cursor: pointer;
+            font-weight: 700;
+        }
+
         .willing-btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -351,6 +388,7 @@
         <h2>📚 StudyMate</h2>
         <div class="user-info">
             <span class="user-badge">{{ user.profession|capitalize }} - {{ user.name }}</span>
+            <a href="{{ url_for('profile.profile', username=user.username) }}" class="nav-link" style="color: white; text-decoration: none; background: rgba(255,255,255,0.1); padding: 8px 16px; border-radius: 20px;">View Profile</a>
             <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
         </div>
     </div>
@@ -364,18 +402,64 @@
 
         <!-- Tab 1: Available Topics -->
         <div id="available" class="tab-content active">
+            <!-- Search and quick filters -->
+            <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">
+              <input id="topicSearch" type="text" placeholder="Search topics, e.g. Python, Java, Data Science..." style="padding:12px;border-radius:10px;border:1px solid #ddd;width:100%;font-size:1rem;" oninput="filterTopics()" />
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="willing-btn" type="button" onclick="applyTag('python')">Python</button>
+                <button class="willing-btn" type="button" onclick="applyTag('java')">Java</button>
+                <button class="willing-btn" type="button" onclick="applyTag('javascript')">JavaScript</button>
+                <button class="willing-btn" type="button" onclick="applyTag('machine-learning')">ML</button>
+                <button class="willing-btn" type="button" onclick="applyTag('web')">Web</button>
+                <button class="willing-btn" type="button" onclick="applyTag('')">Clear</button>
+              </div>
+            </div>
             {% if topics %}
                 {% for topic in topics %}
-                <div class="topic-card">
+                <div class="topic-card" data-title="{{ topic[1]|lower }}" data-desc="{{ topic[2]|lower }}" data-category="{{ (topic[10] or '')|lower }}">
                     <div class="topic-header">
                         <div>
                             <div class="topic-title">{{ topic[1] }}</div>
                             <div class="topic-author">📝 {{ topic[8] }}</div>
                             <div style="color: #999; font-size: 0.85em; margin-top: 4px;">🕒 {{ topic[5] }}</div>
                         </div>
-                        <div class="topic-duration">⏱️ {{ topic[3] }}</div>
+                        <div>
+                            <span class="topic-duration">⏱️ {{ topic[3] }}</span>
+                            {% if topic[10] %}
+                                <span class="category-badge">#{{ topic[10] }}</span>
+                            {% endif %}
+                        </div>
                     </div>
                     <div class="topic-description">{{ topic[2] }}</div>
+                    <div class="rating-box">
+                        <span id="avg-{{ topic[0] }}">⭐ {{ '%.1f' % topic[11] }} ({{ topic[12] }})</span>
+                        {% if topic[4] != user.id %}
+                            {% if topic[13] %}
+                            {# Feedback can be submitted (scheduled date has passed or no scheduled date) #}
+                            <div class="stars" data-topic-id="{{ topic[0] }}" aria-label="Rate">
+                                {% for i in [1,2,3,4,5] %}
+                                    <span class="star" data-value="{{ i }}" onclick="starRate(this)">☆</span>
+                                {% endfor %}
+                            </div>
+                            <input type="text" id="feedback-{{ topic[0] }}" placeholder="Leave feedback (optional)" style="flex:1; min-width:220px; padding:8px 10px; border:1px solid #ddd; border-radius:8px;">
+                            <button class="rate-btn" data-topic-id="{{ topic[0] }}" onclick="submitStarRating(this)">Submit</button>
+                            {% elif topic[6] %}
+                            {# Scheduled date hasn't passed yet #}
+                            <div style="color: #999; font-size: 0.9em; font-style: italic; padding: 8px; background: #f5f5f5; border-radius: 8px;">
+                                📅 Feedback can be submitted after the scheduled session: {{ topic[6] }}
+                            </div>
+                            {% else %}
+                            {# No scheduled date yet #}
+                            <div class="stars" data-topic-id="{{ topic[0] }}" aria-label="Rate">
+                                {% for i in [1,2,3,4,5] %}
+                                    <span class="star" data-value="{{ i }}" onclick="starRate(this)">☆</span>
+                                {% endfor %}
+                            </div>
+                            <input type="text" id="feedback-{{ topic[0] }}" placeholder="Leave feedback (optional)" style="flex:1; min-width:220px; padding:8px 10px; border:1px solid #ddd; border-radius:8px;">
+                            <button class="rate-btn" data-topic-id="{{ topic[0] }}" onclick="submitStarRating(this)">Submit</button>
+                            {% endif %}
+                        {% endif %}
+                    </div>
                     <div class="meta-info">
                         {% if topic[4] != user.id %}
                         <button class="willing-btn" data-topic-id="{{ topic[0] }}" data-count="{{ topic[9]|default(0) }}" onclick="toggleWilling(this)">
@@ -395,6 +479,25 @@
                             </div>
                         {% endif %}
                     </div>
+                    {% if topic_ratings and topic_ratings.get(topic[0]) %}
+                        <div style="margin-top: 15px; padding: 18px; background: #fff; border-radius: 12px; border: 1px solid #eee;">
+                            <strong style="color: #333; font-size: 1.05em;">📝 Ratings & Feedback</strong>
+                            <div style="margin-top: 10px; display: grid; gap: 10px;">
+                                {% for rf in topic_ratings.get(topic[0], []) %}
+                                    <div style="padding: 10px 12px; background: #fafafa; border-radius: 10px; border: 1px solid #eee;">
+                                        <div style="display:flex; justify-content: space-between; align-items:center;">
+                                            <span style="font-weight:700; color:#444;">{{ rf.name }}</span>
+                                            <span style="color:#ffb300; font-weight:700;">⭐ {{ '%.1f' % rf.rating }}</span>
+                                        </div>
+                                        {% if rf.feedback %}
+                                        <div style="margin-top:6px; color:#666;">{{ rf.feedback }}</div>
+                                        {% endif %}
+                                        <div style="margin-top:6px; color:#999; font-size:0.85em;">{{ rf.when }}</div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
                 </div>
                 {% endfor %}
             {% else %}
@@ -422,6 +525,7 @@
                         <label>Duration:</label>
                         <input type="text" name="duration" required placeholder="e.g., 2 hours, 1 week, etc.">
                     </div>
+                    
                     <button type="submit" class="submit-btn">Post Topic</button>
         </form>
             </div>
@@ -456,7 +560,7 @@
                                 📅 📆 Scheduled: {{ topic[6] }}
                             </div>
                         </div>
-                    {% endif %}
+    {% endif %}
                     {% if willing_users.get(topic[0]) %}
                         <div style="margin-top: 15px; padding: 18px; background: linear-gradient(135deg, #f0f7ff 0%, #e8f0fe 100%); border-radius: 12px; border: 2px solid #667eea;">
                             <strong style="color: #667eea; font-size: 1.1em;">👥 Members Joined:</strong>
@@ -466,13 +570,13 @@
                                 {% endfor %}
                             </div>
                         </div>
-                    {% else %}
+        {% else %}
                         <div style="margin-top: 15px; padding: 18px; background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%); border-radius: 12px; color: #e65100; border: 2px solid #ffb74d;">
                             ⏳ No members joined yet
                         </div>
                     {% endif %}
                 </div>
-                {% endfor %}
+        {% endfor %}
         {% else %}
                 <div class="empty-state">
                     <h3>📝 No posts yet</h3>
@@ -568,27 +672,21 @@
 
         function openScheduleModal(button) {
             const topicId = button.getAttribute('data-topic-id');
-            const currentDatetime = button.getAttribute('data-current-datetime');
             
             const modal = document.getElementById('scheduleModal');
             const form = document.getElementById('scheduleForm');
             const datetimeInput = document.getElementById('scheduled_datetime');
             const topicIdInput = document.getElementById('topic_id');
             
-            // Set minimum date and time
-            const now = new Date();
-            now.setMinutes(now.getMinutes() + 1);
-            const minDatetime = now.toISOString().slice(0, 16);
-            datetimeInput.min = minDatetime;
-            
+            // Allow current time and date (no minimum date constraint)
             // Set form action
             form.action = `/schedule_session/${topicId}`;
             topicIdInput.value = topicId;
             
-            // Set current datetime if exists
-            if (currentDatetime) {
-                datetimeInput.value = currentDatetime;
-            }
+            // Set to current time by default (allows current and past dates)
+            const now = new Date();
+            datetimeInput.value = now.toISOString().slice(0, 16);
+            datetimeInput.removeAttribute('min'); // Remove any minimum date constraint
             
             modal.style.display = 'flex';
         }
@@ -603,6 +701,59 @@
             if (event.target === modal) {
                 modal.style.display = 'none';
             }
+        }
+
+        function starRate(el){
+            const container = el.parentElement;
+            const value = Number(el.getAttribute('data-value'));
+            [...container.querySelectorAll('.star')].forEach(st => {
+                st.classList.toggle('active', Number(st.getAttribute('data-value')) <= value);
+                st.textContent = Number(st.getAttribute('data-value')) <= value ? '★' : '☆';
+            });
+            container.setAttribute('data-selected', String(value));
+        }
+
+        function submitStarRating(buttonEl){
+            const topicId = buttonEl.getAttribute('data-topic-id');
+            const stars = document.querySelector(`.stars[data-topic-id="${topicId}"]`);
+            const rating = Number(stars?.getAttribute('data-selected') || '0');
+            const feedbackEl = document.getElementById(`feedback-${topicId}`);
+            const feedback = feedbackEl ? feedbackEl.value : '';
+            const form = new FormData();
+            form.append('rating', String(rating));
+            form.append('feedback', feedback);
+            fetch(`/rate_topic/${topicId}`, { method: 'POST', body: form })
+              .then(r => r.json())
+              .then(data => {
+                  if (data.error){ alert(data.error); return; }
+                  const avg = document.getElementById(`avg-${topicId}`);
+                  if (avg){ avg.textContent = `⭐ ${Number(data.avg).toFixed(1)} (${data.count})`; }
+                  if (feedbackEl){ feedbackEl.value = ''; }
+                  // show a user-friendly toast on success (base.html defines showToast)
+                  if (typeof showToast === 'function'){
+                      showToast('Feedback submitted', 'success');
+                  } else {
+                      alert('Feedback submitted');
+                  }
+              })
+              .catch(err => { console.error(err); alert('Failed to submit rating'); });
+        }
+
+        // --- Topic search & quick tag filters ---
+        function filterTopics(){
+            const q = (document.getElementById('topicSearch')?.value || '').trim().toLowerCase();
+            document.querySelectorAll('.topic-card').forEach(card => {
+                const title = (card.dataset.title || '').toLowerCase();
+                const desc = (card.dataset.desc || '').toLowerCase();
+                const cat = (card.dataset.category || '').toLowerCase();
+                const match = !q || title.includes(q) || desc.includes(q) || cat.includes(q);
+                card.style.display = match ? '' : 'none';
+            });
+        }
+
+        function applyTag(tag){
+            document.getElementById('topicSearch').value = tag;
+            filterTopics();
         }
     </script>
 </body>
