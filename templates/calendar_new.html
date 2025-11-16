@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudyMate - Calendar View</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h2 {
+            font-size: 1.8em;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .back-link {
+            color: white;
+            text-decoration: none;
+            font-weight: 600;
+            background: rgba(255,255,255,0.15);
+            padding: 8px 16px;
+            border-radius: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .back-link:hover {
+            background: rgba(255,255,255,0.25);
+            transform: translateX(-3px);
+        }
+
+        .logout-btn {
+            background: white;
+            color: #667eea;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .logout-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .calendar-wrapper {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .calendar-main {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 2px 15px rgba(0, 0, 0, 0.08);
+        }
+
+        .calendar-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .calendar-controls h2 {
+            font-size: 1.8em;
+            color: #333;
+            min-width: 250px;
+        }
+
+        .nav-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .nav-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            font-size: 0.95em;
+        }
+
+        .nav-btn:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+        }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .weekday-header {
+            font-weight: 700;
+            text-align: center;
+            color: #667eea;
+            padding: 12px;
+            font-size: 0.95em;
+        }
+
+        .calendar-day {
+            aspect-ratio: 1;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 12px;
+            background: white;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+            min-height: 110px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .calendar-day:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.25);
+            transform: translateY(-2px);
+        }
+
+        .calendar-day.other-month {
+            background: #f9f9f9;
+            color: #ccc;
+            opacity: 0.5;
+            cursor: default;
+        }
+
+        .calendar-day.today {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-weight: 700;
+            border-color: #667eea;
+        }
+
+        .calendar-day.has-events {
+            background: linear-gradient(135deg, #fff0f0 0%, #ffe8e8 100%);
+            border-color: #ff9a9e;
+        }
+
+        .calendar-day.selected {
+            background: #e8f5e9;
+            border-color: #4caf50;
+        }
+
+        .calendar-day-number {
+            font-weight: 700;
+            font-size: 1.1em;
+            margin-bottom: 6px;
+        }
+
+        .event-indicators {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            overflow: hidden;
+            font-size: 0.75em;
+        }
+
+        .event-dot {
+            width: 6px;
+            height: 6px;
+            background: #ff6b6b;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .event-preview {
+            font-size: 0.7em;
+            color: #666;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1.2;
+        }
+
+        .calendar-day.today .event-preview {
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .sidebar-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+        }
+
+        .sidebar-card h3 {
+            color: #333;
+            font-size: 1.1em;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .mini-calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 3px;
+        }
+
+        .mini-day {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.8em;
+            background: white;
+            transition: all 0.2s ease;
+        }
+
+        .mini-day:hover {
+            background: #f0f0f0;
+            border-color: #667eea;
+        }
+
+        .mini-day.today {
+            background: #667eea;
+            color: white;
+            font-weight: 700;
+            border-color: #667eea;
+        }
+
+        .mini-day.has-events {
+            font-weight: 700;
+            color: #ff6b6b;
+        }
+
+        .filter-section {
+            margin-top: 15px;
+        }
+
+        .filter-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .filter-option:hover {
+            background: #f0f0f0;
+        }
+
+        .filter-option input[type="checkbox"] {
+            cursor: pointer;
+        }
+
+        .filter-label {
+            flex: 1;
+            font-size: 0.9em;
+        }
+
+        .legend {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e0e0e0;
+            font-size: 0.85em;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 6px 0;
+        }
+
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+        }
+
+        .legend-dot.scheduled {
+            background: #667eea;
+        }
+
+        .legend-dot.opted {
+            background: #4caf50;
+        }
+
+        .legend-dot.today {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .topics-section {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 2px 15px rgba(0, 0, 0, 0.08);
+        }
+
+        .topics-section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .date-group {
+            margin-bottom: 30px;
+        }
+
+        .date-header {
+            font-size: 1.2em;
+            font-weight: 700;
+            color: #667eea;
+            margin: 20px 0 15px 0;
+            padding: 10px 0;
+            border-left: 4px solid #667eea;
+            padding-left: 15px;
+        }
+
+        .topic-card {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .topic-card:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.15);
+            border-color: #667eea;
+        }
+
+        .topic-card.opted-in {
+            background: linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 100%);
+            border-color: #4caf50;
+            border-left: 4px solid #4caf50;
+        }
+
+        .topic-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 10px;
+            gap: 10px;
+        }
+
+        .topic-title {
+            font-size: 1.2em;
+            font-weight: 700;
+            color: #333;
+            flex: 1;
+        }
+
+        .topic-time {
+            display: inline-block;
+            background: #f0f7ff;
+            color: #667eea;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .topic-card.opted-in .topic-time {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .topic-instructor {
+            color: #667eea;
+            font-size: 0.95em;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .topic-description {
+            color: #666;
+            line-height: 1.6;
+            margin: 10px 0;
+            font-size: 0.95em;
+        }
+
+        .topic-meta {
+            display: flex;
+            gap: 15px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+
+        .status-upcoming {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .status-today {
+            background: #fff3e0;
+            color: #e65100;
+        }
+
+        .status-passed {
+            background: #f5f5f5;
+            color: #666;
+        }
+
+        .status-opted {
+            background: #c8e6c9;
+            color: #1b5e20;
+            font-weight: 700;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-state h3 {
+            font-size: 1.5em;
+            margin-bottom: 10px;
+        }
+
+        @media (max-width: 1200px) {
+            .calendar-wrapper {
+                grid-template-columns: 1fr;
+            }
+
+            .calendar-day {
+                min-height: 90px;
+                padding: 8px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .calendar-controls {
+                flex-direction: column;
+                gap: 15px;
+                align-items: flex-start;
+            }
+
+            .calendar-controls h2 {
+                width: 100%;
+            }
+
+            .nav-buttons {
+                width: 100%;
+            }
+
+            .nav-btn {
+                flex: 1;
+            }
+
+            .calendar-day {
+                min-height: 70px;
+                font-size: 0.85em;
+                padding: 6px;
+            }
+
+            .event-preview {
+                font-size: 0.65em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>📅 StudyMate - Calendar</h2>
+        <div class="user-info">
+            <a href="{{ url_for('home') }}" class="back-link">← Back to Home</a>
+            <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Calendar and Sidebar -->
+        <div class="calendar-wrapper">
+            <!-- Main Calendar -->
+            <div class="calendar-main">
+                <div class="calendar-controls">
+                    <h2 id="monthYear"></h2>
+                    <div class="nav-buttons">
+                        <button class="nav-btn" onclick="previousMonth()">← Previous</button>
+                        <button class="nav-btn" onclick="goToToday()">Today</button>
+                        <button class="nav-btn" onclick="nextMonth()">Next →</button>
+                    </div>
+                </div>
+
+                <div class="calendar-grid" id="calendar"></div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <!-- Mini Calendar -->
+                <div class="sidebar-card">
+                    <h3>📅 Quick Navigation</h3>
+                    <div class="calendar-grid" id="miniCalendar"></div>
+                    <div class="legend">
+                        <div style="font-weight: 700; margin-bottom: 8px;">Legend:</div>
+                        <div class="legend-item">
+                            <div class="legend-dot scheduled"></div>
+                            <span>Has Topics</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-dot opted"></div>
+                            <span>Opted In</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-dot today"></div>
+                            <span>Today</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filters -->
+                <div class="sidebar-card">
+                    <h3>🔍 Filters</h3>
+                    <div class="filter-section">
+                        <label class="filter-option">
+                            <input type="checkbox" id="filterUpcoming" checked onchange="applyFilters()">
+                            <span class="filter-label">Upcoming Topics</span>
+                        </label>
+                        <label class="filter-option">
+                            <input type="checkbox" id="filterPast" onchange="applyFilters()">
+                            <span class="filter-label">Past Topics</span>
+                        </label>
+                        <label class="filter-option">
+                            <input type="checkbox" id="filterOptedIn" checked onchange="applyFilters()">
+                            <span class="filter-label">Opted In Topics</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Topics by Date -->
+        <div class="topics-section">
+            <h2>📚 Topics Schedule</h2>
+            <div id="topicsContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentMonth = new Date().getMonth();
+        let currentYear = new Date().getFullYear();
+        let allTopics = [];
+        let userOptedTopics = new Set();
+        let selectedDate = null;
+
+        // Parse calendar data from backend
+        const topicsData = JSON.parse('{{ calendar_data|safe }}');
+        const userOptedData = JSON.parse('{{ user_opted|safe }}');
+
+        userOptedData.forEach(topicId => {
+            userOptedTopics.add(topicId);
+        });
+
+        // Parse topics and organize by date
+        const topicsByDate = {};
+        topicsData.forEach(topic => {
+            if (topic.scheduled_datetime) {
+                const dateKey = topic.scheduled_datetime.split(' ')[0]; // YYYY-MM-DD
+                if (!topicsByDate[dateKey]) {
+                    topicsByDate[dateKey] = [];
+                }
+                topicsByDate[dateKey].push(topic);
+            }
+        });
+
+        allTopics = topicsData;
+
+        function daysInMonth(month, year) {
+            return new Date(year, month + 1, 0).getDate();
+        }
+
+        function firstDayOfMonth(month, year) {
+            return new Date(year, month, 1).getDay();
+        }
+
+        function renderCalendar() {
+            const calendar = document.getElementById('calendar');
+            calendar.innerHTML = '';
+
+            // Weekday headers
+            const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            weekdays.forEach(day => {
+                const header = document.createElement('div');
+                header.className = 'weekday-header';
+                header.textContent = day;
+                calendar.appendChild(header);
+            });
+
+            const firstDay = firstDayOfMonth(currentMonth, currentYear);
+            const daysCount = daysInMonth(currentMonth, currentYear);
+            const prevDaysCount = daysInMonth(currentMonth - 1, currentYear - (currentMonth === 0 ? 1 : 0));
+
+            const today = new Date();
+            const isCurrentMonth = today.getMonth() === currentMonth && today.getFullYear() === currentYear;
+
+            // Previous month days
+            for (let i = firstDay - 1; i >= 0; i--) {
+                const dayElement = createDayElement(prevDaysCount - i, currentMonth - 1, currentYear - (currentMonth === 0 ? 1 : 0), true);
+                calendar.appendChild(dayElement);
+            }
+
+            // Current month days
+            for (let day = 1; day <= daysCount; day++) {
+                const dayElement = createDayElement(day, currentMonth, currentYear, false);
+                
+                if (isCurrentMonth && day === today.getDate()) {
+                    dayElement.classList.add('today');
+                }
+
+                const dateKey = formatDate(day, currentMonth, currentYear);
+                if (topicsByDate[dateKey] && topicsByDate[dateKey].length > 0) {
+                    dayElement.classList.add('has-events');
+                }
+
+                calendar.appendChild(dayElement);
+            }
+
+            // Next month days
+            const totalCells = calendar.children.length - 7; // Subtract weekday headers
+            const remainingCells = 42 - totalCells; // 6 rows * 7 days
+            for (let day = 1; day <= remainingCells; day++) {
+                const dayElement = createDayElement(day, currentMonth + 1, currentYear + (currentMonth === 11 ? 1 : 0), true);
+                calendar.appendChild(dayElement);
+            }
+
+            updateMonthYear();
+            renderMiniCalendar();
+        }
+
+        function createDayElement(day, month, year, isOtherMonth) {
+            const dayElement = document.createElement('div');
+            dayElement.className = 'calendar-day';
+            if (isOtherMonth) dayElement.classList.add('other-month');
+
+            const dateKey = formatDate(day, month, year);
+            const dayTopics = topicsByDate[dateKey] || [];
+            
+            let innerHTML = `<div class="calendar-day-number">${day}</div>`;
+            
+            if (!isOtherMonth && dayTopics.length > 0) {
+                innerHTML += '<div class="event-indicators">';
+                dayTopics.slice(0, 2).forEach(topic => {
+                    const isOpted = userOptedTopics.has(topic.id);
+                    const color = isOpted ? '#4caf50' : '#667eea';
+                    innerHTML += `<div class="event-preview" style="color: ${color}; font-weight: ${isOpted ? '700' : '500'}">
+                        • ${topic.title.substring(0, 15)}${topic.title.length > 15 ? '...' : ''}
+                    </div>`;
+                });
+                if (dayTopics.length > 2) {
+                    innerHTML += `<div class="event-preview">+${dayTopics.length - 2} more</div>`;
+                }
+                innerHTML += '</div>';
+            }
+
+            dayElement.innerHTML = innerHTML;
+
+            if (!isOtherMonth) {
+                dayElement.onclick = () => selectDate(day, month, year);
+            }
+
+            return dayElement;
+        }
+
+        function formatDate(day, month, year) {
+            const m = String(month + 1).padStart(2, '0');
+            const d = String(day).padStart(2, '0');
+            return `${year}-${m}-${d}`;
+        }
+
+        function selectDate(day, month, year) {
+            selectedDate = new Date(year, month, day);
+            renderTopicsForDate();
+            renderCalendar(); // Re-render to show selection
+        }
+
+        function updateMonthYear() {
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                              'July', 'August', 'September', 'October', 'November', 'December'];
+            document.getElementById('monthYear').textContent = `${monthNames[currentMonth]} ${currentYear}`;
+        }
+
+        function previousMonth() {
+            if (currentMonth === 0) {
+                currentMonth = 11;
+                currentYear--;
+            } else {
+                currentMonth--;
+            }
+            renderCalendar();
+        }
+
+        function nextMonth() {
+            if (currentMonth === 11) {
+                currentMonth = 0;
+                currentYear++;
+            } else {
+                currentMonth++;
+            }
+            renderCalendar();
+        }
+
+        function goToToday() {
+            const today = new Date();
+            currentMonth = today.getMonth();
+            currentYear = today.getFullYear();
+            renderCalendar();
+        }
+
+        function renderMiniCalendar() {
+            const mini = document.getElementById('miniCalendar');
+            mini.innerHTML = '';
+
+            const firstDay = firstDayOfMonth(currentMonth, currentYear);
+            const daysCount = daysInMonth(currentMonth, currentYear);
+
+            // Add empty cells for days before month starts
+            for (let i = 0; i < firstDay; i++) {
+                const empty = document.createElement('div');
+                empty.className = 'mini-day';
+                empty.style.visibility = 'hidden';
+                mini.appendChild(empty);
+            }
+
+            const today = new Date();
+            const isCurrentMonth = today.getMonth() === currentMonth && today.getFullYear() === currentYear;
+
+            for (let day = 1; day <= daysCount; day++) {
+                const dayDiv = document.createElement('div');
+                dayDiv.className = 'mini-day';
+                dayDiv.textContent = day;
+
+                const dateKey = formatDate(day, currentMonth, currentYear);
+                
+                if (topicsByDate[dateKey]) {
+                    const hasOpted = topicsByDate[dateKey].some(t => userOptedTopics.has(t.id));
+                    if (hasOpted) {
+                        dayDiv.classList.add('opted-in');
+                    }
+                    if (!hasOpted) {
+                        dayDiv.classList.add('has-events');
+                    }
+                }
+
+                if (isCurrentMonth && day === today.getDate()) {
+                    dayDiv.classList.add('today');
+                }
+
+                dayDiv.onclick = () => selectDate(day, currentMonth, currentYear);
+                mini.appendChild(dayDiv);
+            }
+        }
+
+        function renderTopicsForDate() {
+            const container = document.getElementById('topicsContainer');
+            container.innerHTML = '';
+
+            // Get filter settings
+            const filterUpcoming = document.getElementById('filterUpcoming').checked;
+            const filterPast = document.getElementById('filterPast').checked;
+            const filterOptedIn = document.getElementById('filterOptedIn').checked;
+
+            const now = new Date();
+
+            // Group topics by date
+            const groupedByDate = {};
+            allTopics.forEach(topic => {
+                if (!topic.scheduled_datetime) return;
+
+                // Apply filters
+                const topicDate = new Date(topic.scheduled_datetime);
+                const isUpcoming = topicDate >= now;
+                const isPast = topicDate < now;
+                const isOptedIn = userOptedTopics.has(topic.id);
+
+                if (!filterUpcoming && isUpcoming) return;
+                if (!filterPast && isPast) return;
+                if (!filterOptedIn && isOptedIn) return;
+
+                const dateStr = topic.scheduled_datetime.split(' ')[0];
+                if (!groupedByDate[dateStr]) {
+                    groupedByDate[dateStr] = [];
+                }
+                groupedByDate[dateStr].push(topic);
+            });
+
+            // Sort dates and render
+            const sortedDates = Object.keys(groupedByDate).sort();
+
+            if (sortedDates.length === 0) {
+                container.innerHTML = '<div class="empty-state"><h3>📭 No Topics Found</h3><p>Adjust your filters to see more topics.</p></div>';
+                return;
+            }
+
+            sortedDates.forEach(dateStr => {
+                const dateGroup = document.createElement('div');
+                dateGroup.className = 'date-group';
+
+                const dateObj = new Date(dateStr);
+                const dateHeader = document.createElement('div');
+                dateHeader.className = 'date-header';
+                dateHeader.textContent = `📅 ${dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`;
+                dateGroup.appendChild(dateHeader);
+
+                groupedByDate[dateStr].forEach(topic => {
+                    const card = document.createElement('div');
+                    card.className = 'topic-card';
+                    
+                    const isOptedIn = userOptedTopics.has(topic.id);
+                    if (isOptedIn) {
+                        card.classList.add('opted-in');
+                    }
+
+                    const topicDate = new Date(topic.scheduled_datetime);
+                    const isPast = topicDate < now;
+                    const isToday = topicDate.toDateString() === now.toDateString();
+
+                    let statusBadge = '';
+                    if (isToday) {
+                        statusBadge = '<span class="status-badge status-today">⏰ Today</span>';
+                    } else if (isPast) {
+                        statusBadge = '<span class="status-badge status-passed">✓ Completed</span>';
+                    } else {
+                        statusBadge = '<span class="status-badge status-upcoming">📅 Upcoming</span>';
+                    }
+
+                    if (isOptedIn) {
+                        statusBadge += ' <span class="status-badge status-opted">✅ Opted In</span>';
+                    }
+
+                    const timeStr = topic.scheduled_datetime.split(' ')[1] || 'TBA';
+                    
+                    card.innerHTML = `
+                        <div class="topic-header">
+                            <div class="topic-title">${topic.title}</div>
+                            <div class="topic-time">⏱️ ${timeStr}</div>
+                        </div>
+                        <div class="topic-instructor">👨‍🏫 Instructor: ${topic.instructor}</div>
+                        <div class="topic-description">${topic.description}</div>
+                        <div class="topic-meta">
+                            <div class="meta-item">📚 Duration: ${topic.duration}</div>
+                            ${topic.category ? `<div class="meta-item">🏷️ ${topic.category}</div>` : ''}
+                            <div class="meta-item">👥 ${topic.members || 0} members</div>
+                        </div>
+                        <div>${statusBadge}</div>
+                    `;
+
+                    dateGroup.appendChild(card);
+                });
+
+                container.appendChild(dateGroup);
+            });
+        }
+
+        function applyFilters() {
+            renderTopicsForDate();
+        }
+
+        // Initialize
+        window.addEventListener('load', () => {
+            renderCalendar();
+            renderTopicsForDate();
+        });
+    </script>
+</body>
+</html>

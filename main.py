@@ -95,6 +95,23 @@ def init_db():
     except Exception:
         pass
 
+
+    # Create messages table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_id INTEGER NOT NULL,
+            receiver_id INTEGER NOT NULL,
+            topic_id INTEGER,
+            subject TEXT,
+            message TEXT NOT NULL,
+            is_read BOOLEAN DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (sender_id) REFERENCES users(id),
+            FOREIGN KEY (receiver_id) REFERENCES users(id)
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -278,6 +295,88 @@ def home():
             formatted.append({'name': name, 'rating': rating, 'feedback': feedback, 'when': created_str})
         topic_ratings[topic[0]] = formatted
     
+    # Get user's joined classes (topics where user is willing)
+    c.execute("""
+        SELECT t.id, t.title, t.description, t.duration, t.created_by, t.created_at, t.scheduled_datetime,
+               COUNT(DISTINCT w.id) as willingness_count,
+               u.name,
+               IFNULL(t.category, ''),
+               ROUND(AVG(r.rating), 2) as avg_rating,
+               COUNT(r.id) as ratings_count
+        FROM topics t
+        LEFT JOIN users u ON t.created_by = u.id
+        LEFT JOIN willingness w ON t.id = w.topic_id
+        LEFT JOIN ratings r ON t.id = r.topic_id
+        WHERE t.id IN (
+            SELECT topic_id FROM willingness WHERE user_id = ?
+        )
+        GROUP BY t.id
+        ORDER BY t.created_at DESC
+    """, (user['id'],))
+    raw_joined_topics = c.fetchall()
+    
+    # Format joined_topics timestamps
+    joined_topics = []
+    for topic in raw_joined_topics:
+        topic_list = list(topic)
+        if topic_list[5]:  # created_at exists
+            try:
+                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d']:
+                    try:
+                        dt = datetime.strptime(str(topic_list[5]), fmt)
+                        topic_list[5] = dt.strftime('%b %d at %I:%M %p')
+                        break
+                    except ValueError:
+                        continue
+            except:
+                topic_list[5] = str(topic_list[5])
+        
+        # Format scheduled_datetime
+        if topic_list[6]:
+            try:
+                for fmt in ['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M']:
+                    try:
+                        dt = datetime.strptime(str(topic_list[6]), fmt)
+                        topic_list[6] = dt.strftime('%b %d, %Y at %I:%M %p')
+                        break
+                    except ValueError:
+                        continue
+            except:
+                topic_list[6] = str(topic_list[6])
+        
+        # Normalize rating fields
+        if topic_list[10] is None:
+            topic_list[10] = 0.0
+        joined_topics.append(tuple(topic_list))
+    
+    # Get ratings for joined topics
+    joined_topic_ratings = {}
+    for topic in joined_topics:
+        c.execute("""
+            SELECT u.name, r.rating, IFNULL(r.feedback, ''), r.created_at
+            FROM ratings r
+            JOIN users u ON r.user_id = u.id
+            WHERE r.topic_id = ?
+            ORDER BY r.created_at DESC
+        """, (topic[0],))
+        rows = c.fetchall()
+        formatted = []
+        for name, rating, feedback, created_at in rows:
+            ts = str(created_at) if created_at is not None else ''
+            try:
+                dt = None
+                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d']:
+                    try:
+                        from datetime import datetime as _dt
+                        dt = _dt.strptime(ts, fmt)
+                        break
+                    except ValueError:
+                        continue
+                created_str = dt.strftime('%b %d at %I:%M %p') if dt else ts
+            except Exception:
+                created_str = ts
+            formatted.append({'name': name, 'rating': rating, 'feedback': feedback, 'when': created_str})
+        joined_topic_ratings[topic[0]] = formatted
     # Map of user ratings for quick lookup
     c = None
     conn.close()
@@ -288,7 +387,9 @@ def home():
                            my_topics=my_topics,
                            my_willingness=my_willingness,
                            willing_users=willing_users,
-                           topic_ratings=topic_ratings)
+                           topic_ratings=topic_ratings,
+                           joined_topics=joined_topics,
+                           joined_topic_ratings=joined_topic_ratings)
 
 @app.route('/admin_home')
 def admin_home():
@@ -592,6 +693,184 @@ def willing_to_join(topic_id):
 def logout():
     session.pop('user', None)
     return redirect(url_for('landing'))
+
+
+@app.route('/calendar')
+def calendar_view():
+    if 'user' not in session:
+        return redirect(url_for('landing'))
+    
+    user_id = session['user']['id']
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    # Get all scheduled topics organized by date/time
+    c.execute("""
+        SELECT t.id, t.title, t.description, t.duration, t.scheduled_datetime, 
+               u.name, IFNULL(t.category, ''),
+               COUNT(DISTINCT w.id) as member_count
+        FROM topics t
+        LEFT JOIN users u ON t.created_by = u.id
+        LEFT JOIN willingness w ON t.id = w.topic_id
+        WHERE t.scheduled_datetime IS NOT NULL 
+        GROUP BY t.id
+        ORDER BY t.scheduled_datetime ASC
+    """)
+    topics_raw = c.fetchall()
+    
+    # Get user's opted-in topics
+    c.execute("SELECT topic_id FROM willingness WHERE user_id = ?", (user_id,))
+    user_opted = [row[0] for row in c.fetchall()]
+    
+    # Format calendar data
+    import json
+    calendar_data = []
+    for topic in topics_raw:
+        if topic[4]:  # scheduled_datetime exists
+            # Format the datetime
+            scheduled_dt = str(topic[4])
+            try:
+                for fmt in ['%Y-%m-%dT%H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d']:
+                    try:
+                        dt = datetime.strptime(scheduled_dt, fmt)
+                        formatted_dt = dt.strftime('%Y-%m-%d %H:%M')
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    formatted_dt = scheduled_dt
+            except:
+                formatted_dt = scheduled_dt
+            
+            calendar_data.append({
+                'id': topic[0],
+                'title': topic[1],
+                'description': topic[2],
+                'duration': topic[3],
+                'scheduled_datetime': formatted_dt,
+                'instructor': topic[5] or 'Unknown',
+                'category': topic[6] if topic[6] else None,
+                'members': topic[7]
+            })
+    
+    # Convert to JSON
+    calendar_data_json = json.dumps(calendar_data, default=str)
+    user_opted_json = json.dumps(user_opted)
+    
+    conn.close()
+    
+    return render_template('calendar_new.html', 
+                         calendar_data=calendar_data_json,
+                         user_opted=user_opted_json)
+
+@app.route('/messages')
+def messages_view():
+    if 'user' not in session:
+        return redirect(url_for('landing'))
+    
+    user_id = session['user']['id']
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    # Get unique conversation partners and last message
+    c.execute("""
+        SELECT DISTINCT 
+            CASE 
+                WHEN sender_id = ? THEN receiver_id 
+                ELSE sender_id 
+            END as other_user_id,
+            MAX(created_at) as last_msg_time
+        FROM messages
+        WHERE sender_id = ? OR receiver_id = ?
+        GROUP BY other_user_id
+        ORDER BY last_msg_time DESC
+    """, (user_id, user_id, user_id))
+    
+    conversations = []
+    for row in c.fetchall():
+        other_user_id = row[0]
+        c.execute("SELECT username, name FROM users WHERE id = ?", (other_user_id,))
+        user_info = c.fetchone()
+        if user_info:
+            conversations.append({
+                'user_id': other_user_id,
+                'username': user_info[0],
+                'name': user_info[1]
+            })
+    
+    conn.close()
+    return render_template('messages.html', conversations=conversations)
+
+@app.route('/messages/load/<int:other_user_id>', methods=['GET'])
+def load_messages(other_user_id):
+    if 'user' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    
+    user_id = session['user']['id']
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    # Get all messages between these two users
+    c.execute("""
+        SELECT id, sender_id, message, created_at 
+        FROM messages
+        WHERE (sender_id = ? AND receiver_id = ?) 
+           OR (sender_id = ? AND receiver_id = ?)
+        ORDER BY created_at ASC
+    """, (user_id, other_user_id, other_user_id, user_id))
+    
+    messages = []
+    for row in c.fetchall():
+        messages.append({
+            'id': row[0],
+            'sender_id': row[1],
+            'text': row[2],
+            'sent_at': row[3]
+        })
+    
+    # Mark messages as read
+    c.execute("""
+        UPDATE messages 
+        SET is_read = 1 
+        WHERE receiver_id = ? AND sender_id = ? AND is_read = 0
+    """, (user_id, other_user_id))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({'messages': messages})
+
+@app.route('/messages/send', methods=['POST'])
+def send_message():
+    if 'user' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    
+    user_id = session['user']['id']
+    data = request.json
+    recipient_id = data.get('recipient_id')
+    message_text = data.get('message')
+    
+    if not recipient_id or not message_text:
+        return jsonify({'error': 'Missing fields'}), 400
+    
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    try:
+        c.execute("""
+            INSERT INTO messages (sender_id, receiver_id, message)
+            VALUES (?, ?, ?)
+        """, (user_id, recipient_id, message_text))
+        
+        conn.commit()
+        msg_id = c.lastrowid
+        conn.close()
+        
+        return jsonify({'ok': True, 'id': msg_id})
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+
 
 
 if __name__ == '__main__':

@@ -60,6 +60,26 @@
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
         }
 
+        .calendar-icon-btn {
+            font-size: 1.5em;
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .calendar-icon-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            border-color: rgba(255, 255, 255, 0.5);
+            transform: scale(1.1);
+        }
+
         .container {
             max-width: 1200px;
             margin: 30px auto;
@@ -389,18 +409,15 @@
         <div class="user-info">
             <span class="user-badge">{{ user.profession|capitalize }} - {{ user.name }}</span>
             <a href="{{ url_for('profile.profile', username=user.username) }}" class="nav-link" style="color: white; text-decoration: none; background: rgba(255,255,255,0.1); padding: 8px 16px; border-radius: 20px;">View Profile</a>
-            <a href="{{ url_<div style="display:flex;gap:1rem;align-items:center;">
-        <a href="/calendar" style="color:#667eea;text-decoration:none;font-weight:600;padding:0.5rem 1rem;border-radius:8px;transition:all 0.3s;">📅 Calendar</a>
-        <a href="/messages" style="color:#667eea;text-decoration:none;font-weight:600;padding:0.5rem 1rem;border-radius:8px;transition:all 0.3s;">💬 Messages</a>
-       </div>
-                <div class="user-info">
-tn">Logout</a>
+            <a href="{{ url_for('calendar_view') }}" class="calendar-icon-btn" title="View Calendar">📅</a>
+            <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
         </div>
     </div>
 
     <div class="container">
         <div class="tabs">
             <button class="tab active" onclick="switchTab('available')">Available Topics</button>
+            <button class="tab" onclick="switchTab('joined')">My Classes</button>
             <button class="tab" onclick="switchTab('post')">Post My Topic</button>
             <button class="tab" onclick="switchTab('myposts')">My Posts</button>
         </div>
@@ -513,7 +530,80 @@ tn">Logout</a>
             {% endif %}
         </div>
 
-        <!-- Tab 2: Post Topic -->
+        <!-- Tab 2: My Classes (User's Joined Topics) -->
+        <div id="joined" class="tab-content">
+            {% if joined_topics %}
+                {% for topic in joined_topics %}
+                <div class="topic-card">
+                    <div class="topic-header">
+                        <div>
+                            <div class="topic-title">{{ topic[1] }}</div>
+                            <div class="topic-author">👨‍🏫 Instructor: {{ topic[8] }}</div>
+                            <div style="color: #999; font-size: 0.85em; margin-top: 4px;">🕒 Posted: {{ topic[5] }}</div>
+                        </div>
+                        <div>
+                            <span class="topic-duration">⏱️ {{ topic[3] }}</span>
+                            {% if topic[10] %}
+                                <span class="category-badge">#{{ topic[10] }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="topic-description">{{ topic[2] }}</div>
+                    <div style="margin-top: 15px; padding: 15px; background: linear-gradient(135deg, #f0f7ff 0%, #e8f0fe 100%); border-radius: 10px; border-left: 4px solid #667eea;">
+                        <strong style="color: #667eea;">📊 Class Details:</strong>
+                        <div style="margin-top: 10px; display: grid; gap: 8px; font-size: 0.95em;">
+                            <div>👥 <strong>Members in Class:</strong> {{ topic[9] }} students</div>
+                            {% if topic[11] > 0 %}
+                            <div>⭐ <strong>Average Rating:</strong> {{ '%.1f' % topic[11] }} out of 5 ({{ topic[12] }} reviews)</div>
+                            {% else %}
+                            <div style="color: #999;">⭐ <strong>No ratings yet</strong></div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div style="margin-top: 15px;">
+                        {% if topic[6] %}
+                            <div class="session-status scheduled">
+                                📅 📆 Session scheduled: {{ topic[6] }}
+                            </div>
+                        {% else %}
+                            <div class="session-status not-scheduled">
+                                ⏳ Session not yet scheduled
+                            </div>
+                        {% endif %}
+                    </div>
+                    {% if joined_topic_ratings and joined_topic_ratings.get(topic[0]) %}
+                        <div style="margin-top: 15px; padding: 18px; background: #fff; border-radius: 12px; border: 1px solid #eee;">
+                            <strong style="color: #333; font-size: 1.05em;">📝 Class Reviews</strong>
+                            <div style="margin-top: 10px; display: grid; gap: 10px;">
+                                {% for rf in joined_topic_ratings.get(topic[0], []) %}
+                                    <div style="padding: 10px 12px; background: #fafafa; border-radius: 10px; border: 1px solid #eee;">
+                                        <div style="display:flex; justify-content: space-between; align-items:center;">
+                                            <span style="font-weight:700; color:#444;">{{ rf.name }}</span>
+                                            <span style="color:#ffb300; font-weight:700;">⭐ {{ '%.1f' % rf.rating }}</span>
+                                        </div>
+                                        {% if rf.feedback %}
+                                        <div style="margin-top:6px; color:#666;">{{ rf.feedback }}</div>
+                                        {% endif %}
+                                        <div style="margin-top:6px; color:#999; font-size:0.85em;">{{ rf.when }}</div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+                    <div style="margin-top: 15px; display: flex; gap: 10px;">
+                        <button class="willing-btn" onclick="removeFromClass({{ topic[0] }})" style="flex: 1; background: #f5576c;">❌ Leave Class</button>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <h3>📚 No Classes Yet</h3>
+                    <p>You haven't joined any classes yet. Go to the "Available Topics" tab and click "Willing to Join" to start learning!</p>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Tab 3: Post Topic -->
         <div id="post" class="tab-content">
             <div class="post-form">
                 <h3 style="margin-bottom: 20px; color: #667eea;">Post a New Topic</h3>
@@ -536,7 +626,7 @@ tn">Logout</a>
             </div>
         </div>
 
-        <!-- Tab 3: My Posts -->
+        <!-- Tab 4: My Posts -->
         <div id="myposts" class="tab-content">
             {% if my_topics %}
                 {% for topic in my_topics %}
@@ -759,6 +849,39 @@ tn">Logout</a>
         function applyTag(tag){
             document.getElementById('topicSearch').value = tag;
             filterTopics();
+        }
+
+        function removeFromClass(topicId) {
+            if (!confirm('Are you sure you want to leave this class?')) {
+                return;
+            }
+            
+            fetch(`/willing_to_join/${topicId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => {
+                        throw err;
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                alert('You have left the class');
+                setTimeout(() => window.location.reload(), 500);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Failed to leave class');
+            });
         }
     </script>
 </body>

@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudyMate - Calendar</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h2 {
+            font-size: 1.8em;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .logout-btn {
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 5px;
+            margin-bottom: 0;
+            background: transparent;
+            padding: 0;
+            border-radius: 0;
+            box-shadow: none;
+        }
+
+        .calendar-sidebar .calendar-grid {
+            gap: 2px;
+        }
+
+        .calendar-header {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+            gap: 5px;
+        }
+
+        .calendar-sidebar .calendar-header {
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+        }
+
+        .calendar-header h3 {
+            font-size: 1.5em;
+            color: #333;
+        }
+
+        .calendar-sidebar .calendar-header h3 {
+            font-size: 0.9em;
+        }
+
+        .nav-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            font-size: 0.9em;
+        }
+
+        .calendar-sidebar .nav-btn {
+            padding: 6px 10px;
+            font-size: 0.75em;
+        }
+
+        .nav-btn:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+        }
+
+        .weekday {
+            font-weight: 700;
+            text-align: center;
+            color: #667eea;
+            padding: 10px;
+            font-size: 0.9em;
+        }
+
+        .calendar-sidebar .weekday {
+            padding: 4px;
+            font-size: 0.65em;
+        }
+
+        .calendar-day {
+            aspect-ratio: 1;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 10px;
+            background: white;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+            min-height: 80px;
+            font-size: 0.9em;
+        }
+
+        .calendar-sidebar .calendar-day {
+            min-height: auto;
+            padding: 3px;
+            border-radius: 4px;
+            font-size: 0.65em;
+        }
+
+        .calendar-day:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .calendar-day.other-month {
+            background: #f9f9f9;
+            color: #ccc;
+        }
+
+        .calendar-day.today {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-weight: 700;
+        }
+
+        .calendar-day.has-event {
+            background: linear-gradient(135deg, #fff0f0 0%, #ffe8e8 100%);
+            border-color: #ff9a9e;
+        }
+
+        .calendar-day-number {
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .event-dot {
+            width: 6px;
+            height: 6px;
+            background: #ff6b6b;
+            border-radius: 50%;
+            display: inline-block;
+            margin: 0 2px;
+        }
+
+        .session-card {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+            border-left: 4px solid #667eea;
+            transition: all 0.3s ease;
+        }
+
+        .session-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 25px rgba(102, 126, 234, 0.2);
+            border-left-color: #764ba2;
+        }
+
+        .session-title {
+            font-size: 1.3em;
+            color: #333;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .session-instructor {
+            color: #667eea;
+            font-size: 0.95em;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .session-time {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #666;
+            font-size: 0.95em;
+            margin-bottom: 8px;
+        }
+
+        .session-description {
+            color: #666;
+            line-height: 1.6;
+            margin-top: 10px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+
+        .status-upcoming {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .status-today {
+            background: #fff3e0;
+            color: #e65100;
+        }
+
+        .status-passed {
+            background: #f5f5f5;
+            color: #666;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-state h3 {
+            font-size: 1.5em;
+            margin-bottom: 10px;
+        }
+
+        .joined-classes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .class-card {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+            border-top: 4px solid #667eea;
+            transition: all 0.3s ease;
+        }
+
+        .class-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 25px rgba(102, 126, 234, 0.2);
+            border-top-color: #764ba2;
+        }
+
+        .class-card h4 {
+            font-size: 1.2em;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .class-card p {
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 6px;
+        }
+
+        .class-card strong {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .back-link {
+            display: inline-block;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .back-link:hover {
+            color: #764ba2;
+            transform: translateX(-5px);
+        }
+
+        @media (max-width: 768px) {
+            .calendar-grid {
+                grid-template-columns: repeat(7, 1fr);
+                gap: 5px;
+                padding: 10px;
+            }
+
+            .calendar-day {
+                min-height: 60px;
+                padding: 5px;
+                font-size: 0.9em;
+            }
+
+            .joined-classes-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>📚 StudyMate - Calendar</h2>
+        <div class="user-info">
+            <a href="{{ url_for('home') }}" class="back-link">← Back to Home</a>
+            <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="main-content">
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('schedule')">📋 All Sessions</button>
+                <button class="tab" onclick="switchTab('myClasses')">🎓 My Classes Schedule</button>
+            </div>
+
+            <!-- Tab 1: All Sessions -->
+            <div id="schedule" class="tab-content active">
+                <h3 style="margin-bottom: 20px; color: #667eea;">📋 All Scheduled Sessions</h3>
+                {% if sessions %}
+                    {% for session in sessions %}
+                    <div class="session-card">
+                        <div class="session-title">{{ session[1] }}</div>
+                        <div class="session-instructor">👨‍🏫 Instructor: {{ session[4] }}</div>
+                        <div class="session-description">{{ session[2] }}</div>
+                        <div class="session-time">
+                            <span>📅 {{ session[3] }}</span>
+                        </div>
+                        <span class="status-badge status-upcoming">⏰ Scheduled</span>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-state">
+                        <h3>📭 No Sessions Scheduled</h3>
+                        <p>No classes have scheduled dates yet. Check back soon!</p>
+                    </div>
+                {% endif %}
+            </div>
+
+            <!-- Tab 2: My Classes Schedule -->
+            <div id="myClasses" class="tab-content">
+                <h3 style="margin-bottom: 20px; color: #667eea;">🎓 My Joined Classes with Schedules</h3>
+                {% if joined_classes %}
+                    <div class="joined-classes-grid">
+                        {% for class in joined_classes %}
+                        <div class="class-card">
+                            <h4>{{ class.title }}</h4>
+                            <p><strong>Instructor:</strong> {{ class.instructor }}</p>
+                            {% if class.scheduled_datetime %}
+                            <p>
+                                <strong>📅 Schedule:</strong><br>
+                                {{ class.scheduled_datetime }}
+                            </p>
+                            {% else %}
+                            <p style="color: #ff9a9e;">⏳ <strong>Not yet scheduled</strong></p>
+                            {% endif %}
+                            <p><strong>Duration:</strong> {{ class.duration }}</p>
+                            {% if class.category %}
+                            <p><strong>Category:</strong> #{{ class.category }}</p>
+                            {% endif %}
+                            <p style="color: #999; font-size: 0.85em; margin-top: 10px;">👥 {{ class.members }} members</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="empty-state">
+                        <h3>📚 No Classes Joined Yet</h3>
+                        <p>You haven't joined any classes. Go back to the home page and select "Willing to Join" on topics you're interested in!</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Calendar now in header -->
+    </div>
+
+            // Calendar related JS removed
+    </script>
+</body>
+</html>
